@@ -1,0 +1,18 @@
+# Local database — each deployment gets its own, starts empty
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Secrets — never commit these
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS noise
+.DS_Store
+Thumbs.db
