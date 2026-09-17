@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Statement Reader: turn a messy bank CSV into merchant names, categories, and one honest sentence about where the money went." width="100%">
+  <img src="banner.svg" alt="Statement Reader: turn a messy bank CSV into merchant names, categories, and one honest sentence about where the money went." width="100%">
 </p>
 
 # Statement Reader
