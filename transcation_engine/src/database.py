@@ -1,3 +1,4 @@
+import os
 import sqlite3
 
 from src.categories import (
@@ -18,6 +19,11 @@ DB_PATH = "data/transactions.db"
 # ==========================================================
 
 def get_connection():
+
+    folder = os.path.dirname(DB_PATH)
+
+    if folder:
+        os.makedirs(folder, exist_ok=True)
 
     conn = sqlite3.connect(
         DB_PATH,
