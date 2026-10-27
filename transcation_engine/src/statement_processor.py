@@ -1,5 +1,7 @@
 import pandas as pd
 
+from src.header_detect import detect_roles
+
 
 # ==========================================================
 # COMMON BANK COLUMN NAMES
@@ -97,7 +99,8 @@ def detect_columns(df):
 
     columns = df.columns
 
-    return {
+    # 1. Exact matches against the known lists (fast, never wrong)
+    detected = {
 
         "date":
             find_column(
@@ -130,6 +133,37 @@ def detect_columns(df):
             )
     }
 
+    # 2. Anything still missing: phrase + fuzzy matching
+    #    ("Withdrawals ($)", "Posted\nDate", "Descripton", ...)
+    fuzzy = detect_roles(list(columns))
+    taken = {column for column in detected.values() if column is not None}
+
+    # "Trans Date" beats "Post Date" when a statement has both
+    preferred_date = fuzzy.get("date")
+
+    if (
+        preferred_date is not None
+        and detected["date"] != preferred_date
+        and any(word in normalize_column_name(preferred_date) for word in ("trans", "txn"))
+    ):
+
+        detected["date"] = preferred_date
+
+    taken = {column for column in detected.values() if column is not None}
+
+    for role in ("date", "description", "amount", "debit", "credit"):
+
+        if detected[role] is None:
+
+            candidate = fuzzy.get(role)
+
+            if candidate is not None and candidate not in taken:
+
+                detected[role] = candidate
+                taken.add(candidate)
+
+    return detected
+
 
 # ==========================================================
 # CLEAN MONEY VALUE
@@ -151,11 +185,26 @@ def clean_amount(value):
     value = (
         value
         .replace("$", "")
+        .replace("₹", "")
+        .replace("€", "")
+        .replace("£", "")
         .replace(",", "")
         .replace("(", "-")
         .replace(")", "")
         .strip()
     )
+
+    # "45.99-" (trailing minus) and "45.99 CR" / "45.99 DR" from PDFs
+    upper = value.upper()
+
+    if upper.endswith("CR"):
+        value = value[:-2].strip()
+
+    elif upper.endswith("DR"):
+        value = "-" + value[:-2].strip().lstrip("-")
+
+    elif value.endswith("-") and not value.startswith("-"):
+        value = "-" + value[:-1]
 
     try:
 
@@ -235,7 +284,8 @@ def get_amount(
 
 def prepare_statement(
     df,
-    column_map
+    column_map,
+    flip_sign=False
 ):
 
     description_column = (
@@ -267,6 +317,16 @@ def prepare_statement(
         if not description:
             continue
 
+        amount = get_amount(
+            row,
+            column_map
+        )
+
+        # Credit card statements list purchases as positive numbers
+        if flip_sign:
+
+            amount = -amount
+
         transaction = {
 
             "row_index":
@@ -276,10 +336,7 @@ def prepare_statement(
                 description,
 
             "amount":
-                get_amount(
-                    row,
-                    column_map
-                ),
+                amount,
 
             "date":
                 None
