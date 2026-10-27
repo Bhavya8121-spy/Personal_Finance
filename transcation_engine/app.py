@@ -1,6 +1,6 @@
 import html
 import os
-
+from src.pdf_extractor import read_pdf_statement, PdfStatementError
 import pandas as pd
 import streamlit as st
 
@@ -200,6 +200,7 @@ def reset():
     st.session_state.summary = None
     st.session_state.flash = None
     st.session_state.wants_guidance = False
+    st.session_state.pop("pdf_cache", None)
 
 
 # ======================================================================
@@ -216,7 +217,7 @@ if st.session_state.results_df is None:
         unsafe_allow_html=True,
     )
 
-    uploaded_file = st.file_uploader("Bank statement (CSV)", type=["csv"])
+    uploaded_file = st.file_uploader("Bank statement (CSV or PDF)", type=["csv", "pdf"])
 
     if uploaded_file is not None:
 
@@ -252,6 +253,35 @@ if st.session_state.results_df is None:
             )
         else:
             st.caption(f"Reading **{detected['description']}** as the description, {len(df):,} rows found.")
+        pdf_info = {}
+
+        if uploaded_file.name.lower().endswith(".pdf"):
+            file_bytes = uploaded_file.getvalue()
+            cache_key = (uploaded_file.name, len(file_bytes))
+            cached = st.session_state.get("pdf_cache")
+
+            if cached and cached["key"] == cache_key:
+                df, pdf_info = cached["df"], cached["info"]
+            else:
+                try:
+                    df, pdf_info = read_pdf_statement(
+                        file_bytes, st.session_state.get("pdf_password") or None
+                    )
+                except PdfStatementError as error:
+                    st.error(str(error))
+                    if "password" in str(error).lower():
+                        st.text_input("PDF password", type="password", key="pdf_password")
+                    st.stop()
+                st.session_state.pdf_cache = {"key": cache_key, "df": df, "info": pdf_info}
+
+            for warning in pdf_info["warnings"]:
+                st.info(warning)
+        else:
+            try:
+                df = pd.read_csv(uploaded_file)
+            except Exception:
+                st.error("This file couldn't be read as a CSV. Export it again from your bank and retry.")
+                st.stop()
 
         with st.expander("Column settings", expanded=needs_help):
             description_column = st.selectbox("Description", columns, index=index_of(detected.get("description"), columns))
@@ -261,6 +291,8 @@ if st.session_state.results_df is None:
             credit_column = st.selectbox("Credit", optional, index=index_of(detected.get("credit"), optional))
             currency = st.selectbox("Currency", CURRENCIES, index=index_of(guess_currency(df, detected), CURRENCIES))
             st.caption("Leave Debit and Credit on None if your statement has a single Amount column.")
+            flip_sign = st.checkbox("Positive amounts are spending (credit card statements)",
+                        value=bool(pdf_info.get("flip_default")))
 
         column_map = {
             "description": description_column,
@@ -276,7 +308,7 @@ if st.session_state.results_df is None:
         if st.button("Read my statement", type="primary", use_container_width=True):
 
             try:
-                transactions = prepare_statement(df, column_map)
+                prepare_statement(df, column_map, flip_sign=flip_sign)
             except ValueError as error:
                 st.error(str(error))
                 st.stop()
